@@ -39,6 +39,31 @@ let storageSubscribed = false;
 let inflightRefresh: Promise<UserSession> | null = null;
 let authEpoch = 0;
 let refreshEpoch = 0;
+const AUTH_REFRESH_TIMEOUT_MS = 8_000;
+
+function deferAuthWork(work: () => void) {
+  if (typeof window !== "undefined") {
+    window.setTimeout(work, 0);
+    return;
+  }
+  queueMicrotask(work);
+}
+
+function withTimeout<T>(promise: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error(label)), ms);
+    Promise.resolve(promise).then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+}
 
 function readStoredTheme(): ThemeMode {
   if (typeof window === "undefined") return "light";
@@ -171,8 +196,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           const uid = session.user.id;
           const isDuplicateForCurrentUser = current?.id === uid && !!getLocalSessionId(uid);
           if (!isDuplicateForCurrentUser) {
-            void claimNewSession(uid).catch((e) => {
-              console.warn("[single-session] claim error", e);
+            deferAuthWork(() => {
+              void claimNewSession(uid).catch((e) => {
+                console.warn("[single-session] claim error", e);
+              });
             });
           }
         }
@@ -204,7 +231,13 @@ export const useAppStore = create<AppState>((set, get) => ({
             authError: null,
           });
         }
-        void get().refreshAuth({ force: event === "SIGNED_IN" });
+        // Supabase auth callbacks run while the auth client holds its internal
+        // lock. Starting getSession()/database work synchronously from here can
+        // deadlock that lock and leave authLoading=true forever. Always defer
+        // follow-up auth work to the next macrotask.
+        deferAuthWork(() => {
+          void get().refreshAuth({ force: event === "SIGNED_IN" });
+        });
       });
     }
 
@@ -254,7 +287,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const runId = ++refreshEpoch;
     const run = (async () => {
       try {
-        const { data, error } = await supabase.auth.getSession();
+        const { data, error } = await withTimeout(
+          supabase.auth.getSession(),
+          AUTH_REFRESH_TIMEOUT_MS,
+          "Auth session restore timed out",
+        );
         if (error) {
           console.warn("[auth] getSession error", error);
           const msg = (error.message ?? "").toLowerCase();
@@ -293,7 +330,12 @@ export const useAppStore = create<AppState>((set, get) => ({
           return null;
         }
 
-        const user = (await fetchSessionUser(data.session)) ?? demoUser;
+        const user =
+          (await withTimeout(
+            fetchSessionUser(data.session),
+            AUTH_REFRESH_TIMEOUT_MS,
+            "Auth profile restore timed out",
+          )) ?? demoUser;
         console.debug("[auth] refreshAuth resolved", {
           hasSession: !!data.session,
           hasUser: !!user,

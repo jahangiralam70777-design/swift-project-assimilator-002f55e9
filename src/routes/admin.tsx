@@ -46,6 +46,23 @@ export const Route = createFileRoute("/admin")({
 
 const ADMIN_VERIFIED_KEY = "admin-verified-at";
 const ADMIN_VERIFIED_TTL_MS = 60_000;
+const ADMIN_GATE_TIMEOUT_MS = 12_000;
+
+function withTimeout<T>(promise: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error(label)), ms);
+    Promise.resolve(promise).then(
+      (value) => {
+        window.clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+}
 
 function readRecentVerification(): boolean {
   if (typeof window === "undefined") return false;
@@ -69,36 +86,68 @@ function AdminGate({ children }: { children: React.ReactNode }) {
   // Optimistically trust a recent verification from /admin/login so the
   // dashboard paints immediately. Background re-verification still runs.
   const [verified, setVerified] = useState<boolean>(() => readRecentVerification());
+  const [gateTimedOut, setGateTimedOut] = useState(false);
 
   useEffect(() => {
     if (!user && hasLocalAuthSession()) void refreshAuth({ force: true });
   }, [refreshAuth, user]);
 
   useEffect(() => {
+    if (verified) return;
+    setGateTimedOut(false);
+    const id = window.setTimeout(() => {
+      setGateTimedOut(true);
+      reportError({
+        source: "frontend",
+        severity: "medium",
+        message: "Admin gate timed out before verification completed",
+        route: window.location.pathname,
+        payload: { hasUser: Boolean(user), authLoading, sessionReady, ts: new Date().toISOString() },
+      });
+    }, ADMIN_GATE_TIMEOUT_MS);
+    return () => window.clearTimeout(id);
+  }, [verified, user, authLoading, sessionReady]);
+
+  useEffect(() => {
     let cancelled = false;
     if (!sessionReady || authLoading) return;
     (async () => {
-      const { data: userData, error: userErr } = await supabase.auth.getUser();
-      if (cancelled) return;
-      if (userErr || !userData.user) {
-        navigate({ to: "/admin/login", replace: true });
-        return;
-      }
-      const { data: sess } = await supabase.auth.getSession();
-      if (cancelled) return;
-      const hasToken = !!sess.session?.access_token;
-      if (!hasToken) {
-        navigate({ to: "/admin/login", replace: true });
-        return;
-      }
+      setGateTimedOut(false);
+      let checkedUserId = user?.id ?? null;
       try {
+        const { data: userData, error: userErr } = await withTimeout(
+          supabase.auth.getUser(),
+          ADMIN_GATE_TIMEOUT_MS,
+          "Admin auth user check timed out",
+        );
+        if (cancelled) return;
+        if (userErr || !userData.user) {
+          navigate({ to: "/admin/login", replace: true });
+          return;
+        }
+        checkedUserId = userData.user.id;
+        const { data: sess } = await withTimeout(
+          supabase.auth.getSession(),
+          ADMIN_GATE_TIMEOUT_MS,
+          "Admin auth session check timed out",
+        );
+        if (cancelled) return;
+        const hasToken = !!sess.session?.access_token;
+        if (!hasToken) {
+          navigate({ to: "/admin/login", replace: true });
+          return;
+        }
         console.info("[admin-route] session user", {
           id: userData.user.id,
           email: userData.user.email,
           appMetadata: userData.user.app_metadata,
           userMetadata: userData.user.user_metadata,
         });
-        const result = (await verifyAdmin()) as VerifyAdminAccessResult;
+        const result = (await withTimeout(
+          verifyAdmin(),
+          ADMIN_GATE_TIMEOUT_MS,
+          "Admin role verification timed out",
+        )) as VerifyAdminAccessResult;
         if (cancelled) return;
         if (result?.degraded) {
           console.warn("[admin-route] admin verification degraded", {
@@ -144,7 +193,7 @@ function AdminGate({ children }: { children: React.ReactNode }) {
       } catch (error) {
         if (cancelled) return;
         console.warn("[admin-route] admin verification request failed", {
-          userId: userData.user.id,
+          userId: checkedUserId,
           error: error instanceof Error ? error.message : String(error),
         });
         reportError({
@@ -154,7 +203,7 @@ function AdminGate({ children }: { children: React.ReactNode }) {
           route: window.location.pathname,
           stack: error instanceof Error ? error.stack : undefined,
           payload: {
-            userId: userData.user.id,
+            userId: checkedUserId,
             role: user?.role ?? null,
             error: error instanceof Error ? error.message : String(error),
             ts: new Date().toISOString(),
@@ -173,6 +222,38 @@ function AdminGate({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, [authLoading, sessionReady, user?.id, navigate, verifyAdmin]);
+
+  if (!verified && gateTimedOut) {
+    return (
+      <div role="alert" className="flex min-h-[60dvh] flex-1 items-center justify-center px-4">
+        <div className="max-w-md text-center">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">Admin access check timed out</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            We couldn't finish verifying this session. Try again or sign in again.
+          </p>
+          <div className="mt-6 flex flex-wrap justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setGateTimedOut(false);
+                void refreshAuth({ force: true });
+              }}
+              className="inline-flex min-h-11 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              Try again
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate({ to: "/admin/login", replace: true })}
+              className="inline-flex min-h-11 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+            >
+              Sign in
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!verified) {
     return (
