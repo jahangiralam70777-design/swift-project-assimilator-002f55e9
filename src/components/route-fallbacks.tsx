@@ -122,7 +122,6 @@ export function DefaultErrorFallback({ error, reset }: { error: Error; reset: ()
     }, delay);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
-      setRecovering(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempts, error]);
