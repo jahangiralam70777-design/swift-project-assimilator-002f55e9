@@ -48,11 +48,12 @@ const TYPE_LABEL: Record<MyNotification["type"], string> = {
   broadcast: "Broadcast",
 };
 
-const FILTERS = ["All", "Announcement", "In-app", "Push", "Email"] as const;
+const FILTERS = ["All", "Broadcast", "Announcement", "In-app", "Push", "Email"] as const;
 type FilterKey = (typeof FILTERS)[number];
 
 const filterMap: Record<FilterKey, MyNotification["type"] | null> = {
   All: null,
+  Broadcast: "broadcast",
   Announcement: "announcement",
   "In-app": "in_app",
   Push: "push",

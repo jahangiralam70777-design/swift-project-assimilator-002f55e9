@@ -258,9 +258,21 @@ function RootInner() {
   const hydrated = useAppStore((s) => s.hydrated);
   useNavTiming(user ? { id: user.id, role: user.role } : undefined);
   const lastAuthVersion = useRef(authVersion);
-  const isSitePreviewFrame =
-    typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("site-preview") === "1";
+  // Render-time reads of `window.location` cause hydration mismatches
+  // (React #418): SSR returns false, the client's first render reads the
+  // live URL, the two outputs diverge, and the divergence flows into the
+  // `redirectTo` guard below. Initialise to `false` on both SSR and the
+  // first client render, then update post-mount.
+  const [isSitePreviewFrame, setIsSitePreviewFrame] = useState(false);
+  useEffect(() => {
+    try {
+      setIsSitePreviewFrame(
+        new URLSearchParams(window.location.search).get("site-preview") === "1",
+      );
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   // Apply user prefs (accent color, font size) to <html> on every mount.
   usePrefs();
@@ -360,8 +372,11 @@ function RootInner() {
   const isStudentRoute = STUDENT_ROUTES.includes(path);
 
   const hasPersistedSession = useMemo(() => {
+    // SSR: localStorage is unavailable; defer until hydration so SSR and
+    // first client render agree (prevents React #418).
+    if (!hydrated) return false;
     return hasLocalAuthSession();
-  }, [path, user]);
+  }, [hydrated, path, user]);
 
   const redirectTo = useMemo(() => {
     if (typeof window === "undefined") return null;
