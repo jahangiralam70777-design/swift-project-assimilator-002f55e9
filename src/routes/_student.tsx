@@ -8,6 +8,9 @@ import { NoticeBanner } from "@/components/site/NoticeBanner";
 import { useAppStore, hasLocalAuthSession } from "@/stores/app-store";
 import { supabase } from "@/integrations/supabase/client";
 import { reportError } from "@/lib/error-reporter";
+import { withTimeout } from "@/lib/async-timeout";
+
+const STUDENT_GUARD_TIMEOUT_MS = 8_000;
 
 export const Route = createFileRoute("/_student")({
   // Supabase session lives in localStorage; SSR cannot read it, so render
@@ -19,18 +22,26 @@ export const Route = createFileRoute("/_student")({
     if (!hasLocalAuthSession()) {
       throw redirect({ to: "/login", search: { redirect: location.href } });
     }
-    const { data: userData, error: userError } = await supabase.auth.getUser();
+    const { data: userData, error: userError } = await withTimeout(
+      supabase.auth.getUser(),
+      STUDENT_GUARD_TIMEOUT_MS,
+      "Student session verification timed out",
+    );
     if (userError || !userData.user) {
       await supabase.auth.signOut().catch(() => undefined);
       throw redirect({ to: "/login", search: { redirect: location.href } });
     }
     const uid = userData.user.id;
-    const [{ data: profile }, { data: banned }] = await Promise.all([
-      supabase.from("profiles").select("id,deleted_at,status").eq("id", uid).maybeSingle(),
-      (supabase as unknown as {
-        rpc: (n: string, a: Record<string, unknown>) => Promise<{ data: boolean | null }>;
-      }).rpc("is_user_banned", { _user_id: uid }),
-    ]);
+    const [{ data: profile }, { data: banned }] = await withTimeout(
+      Promise.all([
+        supabase.from("profiles").select("id,deleted_at,status").eq("id", uid).maybeSingle(),
+        (supabase as unknown as {
+          rpc: (n: string, a: Record<string, unknown>) => Promise<{ data: boolean | null }>;
+        }).rpc("is_user_banned", { _user_id: uid }),
+      ]),
+      STUDENT_GUARD_TIMEOUT_MS,
+      "Student account status verification timed out",
+    );
     // New signups may not have a `profiles` row yet (created async by trigger).
     // Treat missing profile as benign — gate only on an explicit
     // deleted/suspended row or a true ban. Prevents post-signup bounces to

@@ -16,6 +16,7 @@ import { pageKeyForPath } from "@/lib/rbac/page-registry";
 import { AccessDenied } from "@/components/rbac/PageGuard";
 import { AdminRouteBoundary } from "@/components/admin/AdminRouteBoundary";
 import { reportError } from "@/lib/error-reporter";
+import { withTimeout } from "@/lib/async-timeout";
 
 export const Route = createFileRoute("/admin")({
   // Admin session lives in localStorage (Supabase). SSR-skip + a
@@ -47,22 +48,6 @@ export const Route = createFileRoute("/admin")({
 const ADMIN_VERIFIED_KEY = "admin-verified-at";
 const ADMIN_VERIFIED_TTL_MS = 60_000;
 const ADMIN_GATE_TIMEOUT_MS = 12_000;
-
-function withTimeout<T>(promise: PromiseLike<T>, ms: number, label: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error(label)), ms);
-    Promise.resolve(promise).then(
-      (value) => {
-        window.clearTimeout(timeout);
-        resolve(value);
-      },
-      (error) => {
-        window.clearTimeout(timeout);
-        reject(error);
-      },
-    );
-  });
-}
 
 function readRecentVerification(): boolean {
   if (typeof window === "undefined") return false;
@@ -106,49 +91,40 @@ function AdminGate({ children }: { children: React.ReactNode }) {
       });
     }, ADMIN_GATE_TIMEOUT_MS);
     return () => window.clearTimeout(id);
-  }, [verified, user, authLoading, sessionReady]);
+  }, [verified]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!sessionReady || authLoading) return;
+    if (!sessionReady) return;
     (async () => {
       setGateTimedOut(false);
       let checkedUserId = user?.id ?? null;
       try {
-        const { data: userData, error: userErr } = await withTimeout(
-          supabase.auth.getUser(),
-          ADMIN_GATE_TIMEOUT_MS,
-          "Admin auth user check timed out",
-        );
+        const [userCheck, result] = await Promise.all([
+          withTimeout(
+            supabase.auth.getUser(),
+            ADMIN_GATE_TIMEOUT_MS,
+            "Admin auth user check timed out",
+          ),
+          withTimeout(
+            verifyAdmin(),
+            ADMIN_GATE_TIMEOUT_MS,
+            "Admin role verification timed out",
+          ) as Promise<VerifyAdminAccessResult>,
+        ]);
         if (cancelled) return;
+        const { data: userData, error: userErr } = userCheck;
         if (userErr || !userData.user) {
           navigate({ to: "/admin/login", replace: true });
           return;
         }
         checkedUserId = userData.user.id;
-        const { data: sess } = await withTimeout(
-          supabase.auth.getSession(),
-          ADMIN_GATE_TIMEOUT_MS,
-          "Admin auth session check timed out",
-        );
-        if (cancelled) return;
-        const hasToken = !!sess.session?.access_token;
-        if (!hasToken) {
-          navigate({ to: "/admin/login", replace: true });
-          return;
-        }
         console.info("[admin-route] session user", {
           id: userData.user.id,
           email: userData.user.email,
           appMetadata: userData.user.app_metadata,
           userMetadata: userData.user.user_metadata,
         });
-        const result = (await withTimeout(
-          verifyAdmin(),
-          ADMIN_GATE_TIMEOUT_MS,
-          "Admin role verification timed out",
-        )) as VerifyAdminAccessResult;
-        if (cancelled) return;
         if (result?.degraded) {
           console.warn("[admin-route] admin verification degraded", {
             userId: userData.user.id,

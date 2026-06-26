@@ -217,7 +217,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           current &&
           current.id === session.user.id
         ) {
-          set({ sessionReady: true, authLoading: false });
+          set({ sessionReady: true, authLoading: Boolean(inflightRefresh) });
           return;
         }
         // Do NOT optimistically guess a role here — writing role:"student"
@@ -364,7 +364,10 @@ export const useAppStore = create<AppState>((set, get) => ({
             sessionReady: true,
             authLoading: false,
             authError: null,
-            authVersion: user && user.id !== state.user?.id ? bumpAuthVersion() : state.authVersion,
+            authVersion:
+              user && (user.id !== state.user?.id || user.role !== state.user?.role)
+                ? bumpAuthVersion()
+                : state.authVersion,
           }));
         }
         return user;
