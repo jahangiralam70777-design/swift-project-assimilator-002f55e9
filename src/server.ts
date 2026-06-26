@@ -57,11 +57,25 @@ const SECURITY_HEADERS: Record<string, string> = {
 };
 
 function applySecurityHeaders(response: Response): Response {
-  // Don't clone the body — mutate headers in place when possible.
-  for (const [k, v] of Object.entries(SECURITY_HEADERS)) {
-    if (!response.headers.has(k)) response.headers.set(k, v);
+  // Some Response objects (Response.redirect, cached/fetch responses) have
+  // immutable headers — headers.set then throws `TypeError: immutable`.
+  // Try in-place mutation first; on failure, rebuild with a mutable copy.
+  try {
+    for (const [k, v] of Object.entries(SECURITY_HEADERS)) {
+      if (!response.headers.has(k)) response.headers.set(k, v);
+    }
+    return response;
+  } catch {
+    const headers = new Headers(response.headers);
+    for (const [k, v] of Object.entries(SECURITY_HEADERS)) {
+      if (!headers.has(k)) headers.set(k, v);
+    }
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   }
-  return response;
 }
 
 function isCatastrophicSsrErrorBody(body: string, responseStatus: number): boolean {
