@@ -1,4 +1,5 @@
-import { Component, Suspense, type ErrorInfo, type ReactNode } from "react";
+import { Component, Suspense, useEffect, useState, type ErrorInfo, type ReactNode } from "react";
+import { AlertTriangle } from "lucide-react";
 import { reportError } from "@/lib/error-reporter";
 
 interface State {
@@ -73,6 +74,35 @@ class AdminRouteErrorBoundary extends Component<
 }
 
 function PageFallback() {
+  const [timedOut, setTimedOut] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setTimedOut(true), 12_000);
+    return () => clearTimeout(id);
+  }, []);
+
+  if (timedOut) {
+    return (
+      <div role="alert" className="glass shadow-card-soft mx-auto my-10 max-w-lg rounded-3xl p-8 text-center">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+          <AlertTriangle className="h-6 w-6 text-destructive" />
+        </div>
+        <h2 className="mt-4 text-lg font-semibold tracking-tight text-foreground">
+          This admin page took too long to load
+        </h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          The loading step timed out instead of leaving the page on an infinite spinner.
+        </p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="mt-6 inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+        >
+          Refresh
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div
       role="status"

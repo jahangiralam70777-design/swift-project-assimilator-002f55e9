@@ -42,15 +42,42 @@ export type Broadcast = {
   read_count?: number;
 };
 
-async function ensureAdmin(supabase: any, userId: string, superOnly = false) {
-  if (superOnly) {
-    const { data } = await supabase.rpc("has_role", { _user_id: userId, _role: "super_admin" });
-    if (!data) throw new Error("Forbidden: super admin only");
-    return;
+const SERVER_QUERY_TIMEOUT_MS = 10_000;
+
+function withServerTimeout<T>(promise: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error(label)), ms);
+    Promise.resolve(promise).then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+}
+
+async function ensureAdmin(_supabase: any, userId: string, superOnly = false) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const rolesToCheck = superOnly ? ["super_admin"] : ["admin", "super_admin"];
+  const { data, error } = await withServerTimeout<{ data: Array<{ role: string }> | null; error: { message: string } | null }>(
+    asAny(supabaseAdmin)
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .in("role", rolesToCheck),
+    SERVER_QUERY_TIMEOUT_MS,
+    "Broadcast admin role lookup timed out",
+  );
+  if (error) throw new Error(`Broadcast admin role lookup failed: ${error.message}`);
+  const roles = ((data ?? []) as Array<{ role: string }>).map((r) => r.role);
+  if (superOnly && !roles.includes("super_admin")) throw new Error("Forbidden: super admin only");
+  if (!superOnly && !roles.some((role) => role === "admin" || role === "super_admin")) {
+    throw new Error("Forbidden: admin role required");
   }
-  const { data: a } = await supabase.rpc("has_role", { _user_id: userId, _role: "admin" });
-  const { data: s } = await supabase.rpc("has_role", { _user_id: userId, _role: "super_admin" });
-  if (!a && !s) throw new Error("Forbidden: admin role required");
 }
 
 function dateFromPreset(preset: string, custom_from?: string, custom_to?: string): { from: string; to: string } {

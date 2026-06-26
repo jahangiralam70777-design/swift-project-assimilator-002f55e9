@@ -1,19 +1,92 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import {
-  Loader2, Send, Megaphone, Pin, PinOff, EyeOff, Eye, Trash2, FileText, History,
+  AlertTriangle, Loader2, Send, Megaphone, Pin, PinOff, EyeOff, Eye, Trash2, FileText, History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useChatPermissions } from "@/hooks/use-chat-permissions";
+import { verifyAdminAccess } from "@/lib/admin-verify.functions";
 import {
   createBroadcast, listBroadcasts, setBroadcastVisibility, setBroadcastPinned,
   deleteBroadcast, listTemplates, createTemplate, deleteTemplate, archiveTemplate,
   type BroadcastPriority, type BroadcastTargetKind, type Broadcast, type BroadcastTemplate,
 } from "@/lib/broadcasts.functions";
+
+const BROADCAST_QUERY_TIMEOUT_MS = 10_000;
+const BROADCAST_LOADING_TIMEOUT_MS = 12_000;
+
+function withTimeout<T>(promise: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error(label)), ms);
+    Promise.resolve(promise).then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+}
+
+function BroadcastLoadingState({ label }: { label: string }) {
+  const [timedOut, setTimedOut] = useState(false);
+  useEffect(() => {
+    setTimedOut(false);
+    const id = setTimeout(() => setTimedOut(true), BROADCAST_LOADING_TIMEOUT_MS);
+    return () => clearTimeout(id);
+  }, [label]);
+
+  if (timedOut) {
+    return (
+      <BroadcastErrorState
+        title="Broadcast Messages took too long to load"
+        message="The loading step timed out instead of spinning forever. Retry the request or refresh this page."
+        onRetry={() => window.location.reload()}
+      />
+    );
+  }
+
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center rounded-2xl border border-border bg-card p-8" role="status" aria-live="polite">
+      <div className="flex items-center gap-3 text-sm text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        <span>{label}</span>
+      </div>
+    </div>
+  );
+}
+
+function BroadcastErrorState({
+  title,
+  message,
+  onRetry,
+}: {
+  title: string;
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div role="alert" className="rounded-2xl border border-destructive/30 bg-destructive/5 p-8 text-center">
+      <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+        <AlertTriangle className="h-5 w-5" />
+      </div>
+      <h3 className="mt-4 text-base font-semibold text-foreground">{title}</h3>
+      <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">{message}</p>
+      {onRetry && (
+        <Button type="button" variant="outline" className="mt-5" onClick={onRetry}>
+          Try again
+        </Button>
+      )}
+    </div>
+  );
+}
 
 const PRIORITY_COLORS: Record<BroadcastPriority, string> = {
   normal: "bg-slate-500/15 text-slate-700 dark:text-slate-300",
@@ -42,6 +115,7 @@ export function BroadcastManager() {
   const qc = useQueryClient();
   const createFn = useServerFn(createBroadcast);
   const listFn = useServerFn(listBroadcasts);
+  const verifyAdminFn = useServerFn(verifyAdminAccess);
   const visFn = useServerFn(setBroadcastVisibility);
   const pinFn = useServerFn(setBroadcastPinned);
   const delFn = useServerFn(deleteBroadcast);
@@ -60,16 +134,36 @@ export function BroadcastManager() {
   const [userIds, setUserIds] = useState("");
   const [tplName, setTplName] = useState("");
 
+  const adminAccessQ = useQuery({
+    queryKey: ["broadcasts", "admin-access"],
+    queryFn: () => withTimeout(
+      verifyAdminFn(),
+      BROADCAST_QUERY_TIMEOUT_MS,
+      "Broadcast admin access verification timed out",
+    ),
+    retry: false,
+    staleTime: 60_000,
+  });
+
+  const verifiedAdminRole = adminAccessQ.data?.role ?? null;
+  const isVerifiedSuperAdmin = verifiedAdminRole === "super_admin";
+  const isVerifiedAdmin = adminAccessQ.data?.isAdmin === true;
+  const canAccessBroadcasts = perms.isAdmin || perms.isSuperAdmin || isVerifiedAdmin;
+  const canUseSuperAdminActions = perms.isSuperAdmin || isVerifiedSuperAdmin;
+  const accessLoading = !canAccessBroadcasts && (adminAccessQ.isPending || perms.loading);
+
   const histQ = useQuery({
     queryKey: ["broadcasts", "history"],
-    queryFn: () => listFn(),
-    enabled: perms.isAdmin || perms.isSuperAdmin,
+    queryFn: () => withTimeout(listFn(), BROADCAST_QUERY_TIMEOUT_MS, "Broadcast history loading timed out"),
+    enabled: canAccessBroadcasts,
     refetchInterval: 15_000,
+    retry: false,
   });
   const tplQ = useQuery({
     queryKey: ["broadcasts", "templates"],
-    queryFn: () => tplListFn(),
-    enabled: perms.isAdmin || perms.isSuperAdmin,
+    queryFn: () => withTimeout(tplListFn(), BROADCAST_QUERY_TIMEOUT_MS, "Broadcast templates loading timed out"),
+    enabled: canAccessBroadcasts,
+    retry: false,
   });
 
   const createMut = useMutation({
@@ -79,12 +173,12 @@ export function BroadcastManager() {
       if (target === "users") {
         filter.user_ids = userIds.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
       }
-      return createFn({
+      return withTimeout(createFn({
         data: {
           subject, body, priority, delivery_methods: methods as ("inbox" | "chat" | "popup")[],
           target_kind: target, target_filter: filter,
         },
-      });
+      }), BROADCAST_QUERY_TIMEOUT_MS, "Broadcast send timed out");
     },
     onSuccess: (r) => {
       toast.success(`Broadcast sent to ${r.recipient_count} user(s)`);
@@ -96,14 +190,14 @@ export function BroadcastManager() {
   });
 
   const saveTplMut = useMutation({
-    mutationFn: async () => tplCreateFn({
+    mutationFn: async () => withTimeout(tplCreateFn({
       data: {
         name: tplName || subject || "Untitled",
         subject, body, priority,
         delivery_methods: methods as ("inbox" | "chat" | "popup")[],
         target_kind: target, target_filter: {},
       },
-    }),
+    }), BROADCAST_QUERY_TIMEOUT_MS, "Broadcast template save timed out"),
     onSuccess: () => {
       toast.success("Template saved");
       setTplName("");
@@ -112,17 +206,21 @@ export function BroadcastManager() {
     onError: (e) => toast.error((e as Error).message),
   });
 
-  // While RBAC is still resolving (userId not yet known), show a skeleton
-  // instead of the "restricted" message — admins were flashing the denied
-  // state on every page load before access data hydrated.
-  if (!perms.isAuthenticated) {
+  if (accessLoading) {
+    return <BroadcastLoadingState label="Verifying broadcast access…" />;
+  }
+  if (adminAccessQ.isError && !canAccessBroadcasts) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center rounded-2xl border border-border bg-card p-8">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-      </div>
+      <BroadcastErrorState
+        title="Broadcast access check failed"
+        message={adminAccessQ.error instanceof Error ? adminAccessQ.error.message : perms.error ?? "Broadcast permissions could not be resolved."}
+        onRetry={() => {
+          void adminAccessQ.refetch();
+        }}
+      />
     );
   }
-  if (!perms.isAdmin && !perms.isSuperAdmin) {
+  if (!canAccessBroadcasts) {
     return (
       <div className="rounded-2xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
         Broadcasts are restricted to admins and super admins.
@@ -241,7 +339,7 @@ export function BroadcastManager() {
 
           <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
             <Input className="max-w-[240px]" placeholder="Template name (optional)" value={tplName} onChange={(e) => setTplName(e.target.value)} />
-            {perms.isSuperAdmin && (
+            {canUseSuperAdminActions && (
               <Button variant="outline" onClick={() => saveTplMut.mutate()} disabled={!subject || !body || saveTplMut.isPending}>
                 <FileText className="mr-1 h-4 w-4" /> Save as template
               </Button>
@@ -258,13 +356,20 @@ export function BroadcastManager() {
 
       {tab === "history" && (
         <div className="space-y-2">
-          {histQ.isLoading && <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}
-          {!histQ.isLoading && (histQ.data ?? []).length === 0 && (
+          {histQ.isPending && <BroadcastLoadingState label="Loading broadcast history…" />}
+          {histQ.isError && (
+            <BroadcastErrorState
+              title="Broadcast history didn't load"
+              message={histQ.error instanceof Error ? histQ.error.message : "Unable to load broadcast history."}
+              onRetry={() => { void histQ.refetch(); }}
+            />
+          )}
+          {!histQ.isPending && !histQ.isError && (histQ.data ?? []).length === 0 && (
             <div className="rounded-xl border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
               <History className="mx-auto mb-2 h-8 w-8 opacity-50" /> No broadcasts sent yet
             </div>
           )}
-          {(histQ.data ?? []).map((b: Broadcast) => {
+          {!histQ.isError && (histQ.data ?? []).map((b: Broadcast) => {
             const total = b.recipient_count || 1;
             const readPct = Math.round(((b.read_count ?? 0) / total) * 100);
             return (
@@ -286,7 +391,7 @@ export function BroadcastManager() {
                     <Button size="sm" variant="ghost" onClick={() => pinFn({ data: { id: b.id, pinned: !b.pinned } }).then(() => qc.invalidateQueries({ queryKey: ["broadcasts"] }))}>
                       {b.pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
                     </Button>
-                    {perms.isSuperAdmin && (
+                    {canUseSuperAdminActions && (
                       <>
                         <Button size="sm" variant="ghost" onClick={() => visFn({ data: { id: b.id, visible: !b.visible } }).then(() => qc.invalidateQueries({ queryKey: ["broadcasts"] }))}>
                           {b.visible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -310,13 +415,20 @@ export function BroadcastManager() {
 
       {tab === "templates" && (
         <div className="space-y-2">
-          {tplQ.isLoading && <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}
-          {!tplQ.isLoading && (tplQ.data ?? []).length === 0 && (
+          {tplQ.isPending && <BroadcastLoadingState label="Loading broadcast templates…" />}
+          {tplQ.isError && (
+            <BroadcastErrorState
+              title="Broadcast templates didn't load"
+              message={tplQ.error instanceof Error ? tplQ.error.message : "Unable to load broadcast templates."}
+              onRetry={() => { void tplQ.refetch(); }}
+            />
+          )}
+          {!tplQ.isPending && !tplQ.isError && (tplQ.data ?? []).length === 0 && (
             <div className="rounded-xl border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
               No templates yet. Save one from the Compose tab.
             </div>
           )}
-          {(tplQ.data ?? []).map((t: BroadcastTemplate) => (
+          {!tplQ.isError && (tplQ.data ?? []).map((t: BroadcastTemplate) => (
             <div key={t.id} className="flex items-center gap-3 rounded-xl border border-border bg-card p-4">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
@@ -326,7 +438,7 @@ export function BroadcastManager() {
                 <p className="truncate text-xs text-muted-foreground">{t.subject}</p>
               </div>
               <Button size="sm" variant="outline" onClick={() => useTemplate(t)}>Use</Button>
-              {perms.isSuperAdmin && (
+              {canUseSuperAdminActions && (
                 <>
                   <Button size="sm" variant="ghost" onClick={() => tplArchiveFn({ data: { id: t.id, archived: !t.archived } }).then(() => qc.invalidateQueries({ queryKey: ["broadcasts", "templates"] }))}>
                     {t.archived ? "Restore" : "Archive"}
