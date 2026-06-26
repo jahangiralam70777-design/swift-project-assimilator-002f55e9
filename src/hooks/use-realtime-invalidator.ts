@@ -344,9 +344,24 @@ const TABLE_QUERY_KEYS: TableMap = {
 export function useRealtimeInvalidator(enabled = true) {
   const qc = useQueryClient();
   const lastToastRef = useRef(0);
+  const pendingKeysRef = useRef<Set<string>>(new Set());
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
+
+    const queueInvalidation = (key: string) => {
+      pendingKeysRef.current.add(key);
+      if (flushTimerRef.current) return;
+      flushTimerRef.current = setTimeout(() => {
+        const keys = Array.from(pendingKeysRef.current);
+        pendingKeysRef.current.clear();
+        flushTimerRef.current = null;
+        for (const queryKey of keys) {
+          qc.invalidateQueries({ queryKey: [queryKey], refetchType: "active" });
+        }
+      }, 250);
+    };
 
     const channel = supabase.channel(
       `global-realtime-invalidator-${Math.random().toString(36).slice(2, 8)}`,
@@ -365,7 +380,7 @@ export function useRealtimeInvalidator(enabled = true) {
           for (const key of meta.keys) {
             if (seen.has(key)) continue;
             seen.add(key);
-            qc.invalidateQueries({ queryKey: [key] });
+            queueInvalidation(key);
           }
 
           const now = Date.now();
@@ -386,6 +401,11 @@ export function useRealtimeInvalidator(enabled = true) {
     channel.subscribe();
 
     return () => {
+      if (flushTimerRef.current) {
+        clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      pendingKeysRef.current.clear();
       supabase.removeChannel(channel);
     };
   }, [enabled, qc]);

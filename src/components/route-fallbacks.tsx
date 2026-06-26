@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
 import { AlertTriangle, Loader2 } from "lucide-react";
+import { withTimeout } from "@/lib/async-timeout";
 
 export function DefaultPendingFallback() {
   const [timedOut, setTimedOut] = useState(false);
@@ -69,6 +70,7 @@ export function DefaultNotFoundFallback() {
 
 const MAX_AUTO_RETRIES = 3;
 const AUTO_RETRY_DELAYS_MS = [400, 1200, 3000];
+const ROUTE_INVALIDATE_TIMEOUT_MS = 5_000;
 
 function isNonRetryable(error: Error | undefined) {
   const msg = error?.message ?? "";
@@ -104,14 +106,19 @@ export function DefaultErrorFallback({ error, reset }: { error: Error; reset: ()
     if (attempts >= MAX_AUTO_RETRIES) return;
     setRecovering(true);
     const delay = AUTO_RETRY_DELAYS_MS[Math.min(attempts, AUTO_RETRY_DELAYS_MS.length - 1)];
-    timerRef.current = setTimeout(async () => {
-      try {
-        await router.invalidate();
-      } catch {
-        // ignore — boundary will re-render with the next error if any
-      }
+    timerRef.current = setTimeout(() => {
       setAttempts((a) => a + 1);
-      reset();
+      void withTimeout(
+        router.invalidate(),
+        ROUTE_INVALIDATE_TIMEOUT_MS,
+        "Route recovery invalidation timed out",
+      )
+        .catch((recoveryError) => {
+          console.warn("[route-error] recovery invalidate failed", recoveryError);
+        })
+        .finally(() => {
+          reset();
+        });
     }, delay);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
@@ -146,14 +153,18 @@ export function DefaultErrorFallback({ error, reset }: { error: Error; reset: ()
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
           <AlertTriangle className="h-6 w-6 text-destructive" />
         </div>
-        <h2 className="mt-4 text-lg font-semibold text-foreground">This section didn't load</h2>
+        <h2 className="mt-4 text-lg font-semibold text-foreground">This section needs attention</h2>
         <p className="mt-2 text-sm text-muted-foreground">{message}</p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
             onClick={async () => {
               setAttempts(0);
               try {
-                await router.invalidate();
+                await withTimeout(
+                  router.invalidate(),
+                  ROUTE_INVALIDATE_TIMEOUT_MS,
+                  "Route retry invalidation timed out",
+                );
               } catch {
                 // ignore
               }
