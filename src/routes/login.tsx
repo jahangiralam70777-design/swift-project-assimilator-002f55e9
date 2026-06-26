@@ -11,12 +11,6 @@ import { useAuthControls } from "@/hooks/use-auth-controls";
 import { MaintenanceScreen } from "@/components/auth/MaintenanceScreen";
 
 export const Route = createFileRoute("/login")({
-  // Login page reads localStorage (theme, session snapshot, "expired" search
-  // param) and renders maintenance/auth UIs from client-only state. Skipping
-  // SSR on this route eliminates the StudentLogin → AuthShell hydration
-  // mismatch without any visible UX change (the page is interactive instantly
-  // either way) and without weakening security.
-  ssr: false,
   component: StudentLogin,
   head: () => ({
     meta: [

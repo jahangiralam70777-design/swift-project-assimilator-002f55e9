@@ -7,7 +7,6 @@ import { NeoInput, NeonButton, FieldLabel } from "@/components/auth/AuthPrimitiv
 import { resetPasswordForEmail } from "@/lib/auth-client";
 
 export const Route = createFileRoute("/forgot-password")({
-  ssr: false,
   component: ForgotPassword,
   head: () => ({
     meta: [
