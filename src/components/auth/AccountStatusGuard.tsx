@@ -222,6 +222,10 @@ export function AccountStatusGuard() {
     // --- Periodic probe (covers missed realtime events + permanent_delete
     // where the local JWT is still technically valid) ---
     let probeInFlight = false;
+    // Track consecutive "profile missing" results so we only log out after
+    // the row has stayed missing across multiple probes (not a single
+    // transient null).
+    let missingProfileStreak = 0;
     const probe = async () => {
       if (stopped || kickedRef.current || probeInFlight) return;
       probeInFlight = true;
