@@ -12,13 +12,17 @@ type Props = {
 };
 
 function useCountdown(target: string | null) {
-  const [now, setNow] = useState(() => Date.now());
+  // Start with `null` so SSR and the first client render are identical;
+  // initialise + tick only after mount. Prevents hydration mismatches
+  // caused by `Date.now()` differing between server and client.
+  const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
     if (!target) return;
+    setNow(Date.now());
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [target]);
-  if (!target) return null;
+  if (!target || now == null) return null;
   const diff = new Date(target).getTime() - now;
   if (diff <= 0) return { d: 0, h: 0, m: 0, s: 0, done: true };
   const s = Math.floor(diff / 1000);
