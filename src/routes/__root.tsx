@@ -372,8 +372,11 @@ function RootInner() {
   const isStudentRoute = STUDENT_ROUTES.includes(path);
 
   const hasPersistedSession = useMemo(() => {
+    // SSR: localStorage is unavailable; defer until hydration so SSR and
+    // first client render agree (prevents React #418).
+    if (!hydrated) return false;
     return hasLocalAuthSession();
-  }, [path, user]);
+  }, [hydrated, path, user]);
 
   const redirectTo = useMemo(() => {
     if (typeof window === "undefined") return null;
