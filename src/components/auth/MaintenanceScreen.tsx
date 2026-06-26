@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ShieldAlert, Clock } from "lucide-react";
 import { AuthShell } from "@/components/auth/AuthShell";
+import { useHydrated } from "@/hooks/use-hydrated";
 
 type Props = {
   title: string;
@@ -12,13 +13,17 @@ type Props = {
 };
 
 function useCountdown(target: string | null) {
-  const [now, setNow] = useState(() => Date.now());
+  // Start with `null` so SSR and the first client render are identical;
+  // initialise + tick only after mount. Prevents hydration mismatches
+  // caused by `Date.now()` differing between server and client.
+  const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
     if (!target) return;
+    setNow(Date.now());
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [target]);
-  if (!target) return null;
+  if (!target || now == null) return null;
   const diff = new Date(target).getTime() - now;
   if (diff <= 0) return { d: 0, h: 0, m: 0, s: 0, done: true };
   const s = Math.floor(diff / 1000);
@@ -52,6 +57,7 @@ export function MaintenanceScreen({
   autoEnableAt,
 }: Props) {
   const cd = useCountdown(autoEnableAt);
+  const hydrated = useHydrated();
   return (
     <AuthShell variant="student">
       <div className="flex items-center gap-3">
@@ -74,8 +80,8 @@ export function MaintenanceScreen({
         <div className="mt-6 rounded-2xl border border-border bg-muted/30 p-4">
           <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
             <Clock className="h-3.5 w-3.5" /> Service resumes on{" "}
-            <span className="font-mono text-foreground">
-              {new Date(autoEnableAt).toLocaleString()}
+            <span className="font-mono text-foreground" suppressHydrationWarning>
+              {hydrated ? new Date(autoEnableAt).toLocaleString() : autoEnableAt}
             </span>
           </div>
           {cd && !cd.done && (

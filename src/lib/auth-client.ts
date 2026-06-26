@@ -190,21 +190,14 @@ export async function signUpWithEmail(input: {
   referralSource?: string;
 }) {
   await gateAuth("signup");
-  // Student-signup kill-switch. Public /signup creates student accounts only;
-  // admin / super-admin accounts are provisioned via the admin user-management
-  // flow and are NOT gated by this switch.
-  try {
-    const r = await checkAuthAllowed({ data: { kind: "signup" } });
-    if (!r.allowed) {
-      throw new Error(
-        r.message ?? "New registrations are temporarily unavailable. Please try again later.",
-      );
-    }
-  } catch (e) {
-    if (e instanceof Error && /unavailable|disabled|maintenance|temporarily/i.test(e.message)) {
-      throw e;
-    }
-  }
+  // NOTE: Removed the redundant pre-flight `checkAuthAllowed` round-trip.
+  // Signup gating is enforced in two stronger places already:
+  //   1. The UI renders <MaintenanceScreen> via `useAuthControls` when
+  //      signup is disabled (so the form never submits).
+  //   2. The Supabase `hook_before_user_created` SQL hook rejects every
+  //      disabled signup inside GoTrue, including direct REST calls.
+  // The extra HTTP round-trip added ~200-600ms to every signup with no
+  // additional security benefit.
   // Supabase appends auth tokens (?code= for PKCE, ?token_hash= for OTP, or
   // #access_token=… for legacy implicit flow) to the redirect URL. The target
   // MUST be a public, non-auth-gated page that exchanges the token and

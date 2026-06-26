@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAppStore } from "@/stores/app-store";
 
 export const Route = createFileRoute("/reset-password")({
+  ssr: false,
   component: ResetPassword,
   head: () => ({
     meta: [

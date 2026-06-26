@@ -112,6 +112,16 @@ export function BroadcastManager() {
     onError: (e) => toast.error((e as Error).message),
   });
 
+  // While RBAC is still resolving (userId not yet known), show a skeleton
+  // instead of the "restricted" message — admins were flashing the denied
+  // state on every page load before access data hydrated.
+  if (!perms.isAuthenticated) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center rounded-2xl border border-border bg-card p-8">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
   if (!perms.isAdmin && !perms.isSuperAdmin) {
     return (
       <div className="rounded-2xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
