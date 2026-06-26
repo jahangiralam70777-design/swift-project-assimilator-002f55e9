@@ -9,14 +9,14 @@ const ACCESS_TIMEOUT_MS = 10_000;
 
 function withTimeout<T>(promise: PromiseLike<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error(label)), ms);
+    const timeout = setTimeout(() => reject(new Error(label)), ms);
     Promise.resolve(promise).then(
       (value) => {
-        window.clearTimeout(timeout);
+        clearTimeout(timeout);
         resolve(value);
       },
       (error) => {
-        window.clearTimeout(timeout);
+        clearTimeout(timeout);
         reject(error);
       },
     );
@@ -51,6 +51,7 @@ export function useMyAccess(): MyAccess {
     queryKey: KEY,
     staleTime: 30_000,
     refetchOnWindowFocus: true,
+    retry: false,
     queryFn: async () => withTimeout(fn(), ACCESS_TIMEOUT_MS, "RBAC access lookup timed out"),
   });
   return useMemo(() => {

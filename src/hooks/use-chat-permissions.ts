@@ -2,6 +2,7 @@
 // backward compatibility with chat/broadcast managers — DO NOT add new
 // role logic here. New gates should call useCan()/useCanPage() directly.
 import { useMyAccess } from "@/hooks/use-my-access";
+import { useAppStore } from "@/stores/app-store";
 
 export type ChatPermissions = {
   isAuthenticated: boolean;
@@ -14,6 +15,9 @@ export type ChatPermissions = {
   canDelete: boolean;
   canManageSettings: boolean;
   userId: string | null;
+  loading: boolean;
+  failed: boolean;
+  error: string | null;
 };
 
 const EMPTY: ChatPermissions = {
@@ -27,11 +31,28 @@ const EMPTY: ChatPermissions = {
   canDelete: false,
   canManageSettings: false,
   userId: null,
+  loading: false,
+  failed: false,
+  error: null,
 };
 
 export function useChatPermissions(): ChatPermissions {
   const a = useMyAccess();
-  if (a.loading || !a.userId) return EMPTY;
+  const storeUser = useAppStore((s) => s.user);
+  const userId = a.userId || storeUser?.id || null;
+  if (a.loading) {
+    return { ...EMPTY, isAuthenticated: !!userId, userId, loading: true };
+  }
+  if (a.failed) {
+    return {
+      ...EMPTY,
+      isAuthenticated: !!userId,
+      userId,
+      failed: true,
+      error: "RBAC access lookup failed or timed out",
+    };
+  }
+  if (!a.userId) return { ...EMPTY, loading: false };
   const isModerator = a.roles.includes("moderator");
   const isStaff = a.isAdmin || a.isSuperAdmin || isModerator;
   // Capability mapping driven by the backend permission set so super_admin
@@ -49,5 +70,8 @@ export function useChatPermissions(): ChatPermissions {
     canDelete: a.isSuperAdmin || can("manage_system"),
     canManageSettings: a.isAdmin || can("manage_system"),
     userId: a.userId,
+    loading: false,
+    failed: false,
+    error: null,
   };
 }
