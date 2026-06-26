@@ -2,11 +2,48 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
 import { AlertTriangle, Loader2 } from "lucide-react";
 
-// Instant navigation: never render a pending fallback between routes.
-// Previous page stays on screen until the next route is ready (TanStack
-// Router default behavior when no pending component is shown).
 export function DefaultPendingFallback() {
-  return null;
+  const [timedOut, setTimedOut] = useState(false);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setTimedOut(true), 12_000);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  if (timedOut) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center px-4 py-10">
+        <div className="max-w-md text-center">
+          <h2 className="text-lg font-semibold text-foreground">This page is taking too long</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            The loading step did not finish. Refresh the page or return home.
+          </p>
+          <div className="mt-6 flex flex-wrap justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Refresh
+            </button>
+            <Link
+              to="/"
+              className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent"
+            >
+              Go home
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center px-4 py-10" role="status" aria-live="polite">
+      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      <span className="sr-only">Loading…</span>
+    </div>
+  );
 }
 
 export function DefaultNotFoundFallback() {

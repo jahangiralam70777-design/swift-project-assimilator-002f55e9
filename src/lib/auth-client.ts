@@ -392,7 +392,10 @@ export async function fetchSessionUser(session?: Session | null): Promise<AuthUs
 
   const profile = profileRes.data;
   const roles = rolesRes.data;
-  if (profile === null || profile?.deleted_at || ["suspended", "deleted", "banned"].includes(profile?.status ?? "")) {
+  if (
+    profile != null &&
+    (profile.deleted_at || ["suspended", "deleted", "banned"].includes(profile.status ?? ""))
+  ) {
     return null;
   }
   if (banRes.data === true) return null;

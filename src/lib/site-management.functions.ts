@@ -16,6 +16,17 @@ async function getAdmin(): Promise<any> {
   return supabaseAdmin as any;
 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getPublicReadClient(): Promise<any> {
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY) return getAdmin();
+  const { createClient } = await import("@supabase/supabase-js");
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_PUBLISHABLE_KEY;
+  if (!url || !key) throw new Error("Missing public Supabase configuration");
+  return createClient(url, key, {
+    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+  });
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const asAny = (x: unknown) => x as any;
 
 // SECURITY: Bucket allow-list. Never trust bucket names pulled from DB rows
@@ -63,7 +74,7 @@ export const publicGetHomepageContent = createServerFn({ method: "GET" })
   .inputValidator(noInput)
   .handler(async () => {
   try {
-    const supabaseAdmin = await getAdmin();
+    const supabaseAdmin = await getPublicReadClient();
     // Use the server-only admin client (bypasses RLS, no localStorage/window
     // access). The previous implementation dynamically imported the BROWSER
     // client which intermittently 500'd on the Worker SSR cold-start because
@@ -84,7 +95,7 @@ export const publicGetHomepageContent = createServerFn({ method: "GET" })
     };
   } catch (e) {
     // Public landing content must never blank the page on a transient read error.
-    console.error("publicGetHomepageContent failed:", e);
+    console.warn("publicGetHomepageContent failed; using bundled fallback:", e);
     return { sections: [] as Array<Record<string, unknown>> };
   }
 });
@@ -93,7 +104,7 @@ export const publicGetSiteSettings = createServerFn({ method: "GET" })
   .inputValidator(noInput)
   .handler(async () => {
   try {
-    const supabaseAdmin = await getAdmin();
+    const supabaseAdmin = await getPublicReadClient();
     // M-3 fix: this fn uses the admin client (bypasses RLS), so we must
     // explicitly filter out unpublished settings — otherwise draft-only
     // keys leak to anonymous visitors.
@@ -106,7 +117,7 @@ export const publicGetSiteSettings = createServerFn({ method: "GET" })
     for (const row of data ?? []) map[row.key] = row.published_value ?? {};
     return { settings: map };
   } catch (e) {
-    console.error("publicGetSiteSettings failed:", e);
+    console.warn("publicGetSiteSettings failed; using bundled fallback:", e);
     return { settings: {} as Record<string, any> };
   }
 });

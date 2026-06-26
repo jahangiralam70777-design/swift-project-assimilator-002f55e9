@@ -244,6 +244,7 @@ const STUDENT_ROUTES = [
   "/short-notes",
   "/qns-bank",
   "/classes",
+  "/daily-progress",
   "/notifications",
   "/profile",
   "/bookmarks",
@@ -255,6 +256,7 @@ function RootInner() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { hydrate, user, authVersion } = useAppStore();
+  const hydrated = useAppStore((s) => s.hydrated);
   useNavTiming(user ? { id: user.id, role: user.role } : undefined);
   const lastAuthVersion = useRef(authVersion);
   const isSitePreviewFrame =
@@ -362,6 +364,7 @@ function RootInner() {
 
   const redirectTo = useMemo(() => {
     if (typeof window === "undefined") return null;
+    if (!hydrated && !isSitePreviewFrame) return null;
     // Password-recovery links intentionally establish a temporary Supabase
     // session BEFORE the user chooses a new password. Treat /reset-password as
     // a special public recovery route: never auto-forward a signed-in user from
@@ -382,14 +385,20 @@ function RootInner() {
     if (!hasPersistedSession && isAdminRoute) return "/admin/login";
     if (!hasPersistedSession && isStudentRoute) return "/login";
     return null;
-  }, [path, user, isAdminRoute, isStudentRoute, hasPersistedSession, isPasswordRecoveryRoute]);
+  }, [
+    path,
+    user,
+    isAdminRoute,
+    isStudentRoute,
+    hasPersistedSession,
+    isPasswordRecoveryRoute,
+    hydrated,
+    isSitePreviewFrame,
+  ]);
 
   if (redirectTo) return <Navigate to={redirectTo as never} replace />;
   return (
-    // Empty fallback: route chunks preload on link hover (defaultPreload: "intent"),
-    // so navigation almost never suspends. Avoiding a full-screen spinner here
-    // prevents the "black screen during route change" flicker.
-    <Suspense fallback={null}>
+    <Suspense fallback={<RootLoadingFallback />}>
       <SingleSessionGuard />
       <AccountStatusGuard />
       <SessionTimeoutGuard />
@@ -398,6 +407,58 @@ function RootInner() {
       <ConfirmDialogHost />
       <DeferredWidgets userRole={user?.role} />
     </Suspense>
+  );
+}
+
+function RootLoadingFallback() {
+  const [timedOut, setTimedOut] = useState(false);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setTimedOut(true), 12_000);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  if (timedOut) {
+    return (
+      <main id="main-content" className="flex min-h-dvh items-center justify-center bg-background px-4">
+        <div className="max-w-md text-center">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">This page is taking too long</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Refresh the page or return home to continue.
+          </p>
+          <div className="mt-6 flex flex-wrap justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="inline-flex min-h-11 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              Refresh
+            </button>
+            <Link
+              to="/"
+              className="inline-flex min-h-11 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+            >
+              Go home
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main
+      id="main-content"
+      role="status"
+      aria-live="polite"
+      className="flex min-h-dvh items-center justify-center bg-background px-4"
+    >
+      <span
+        aria-hidden
+        className="h-8 w-8 animate-spin rounded-full border-2 border-primary/30 border-t-primary"
+      />
+      <span className="sr-only">Loading…</span>
+    </main>
   );
 }
 

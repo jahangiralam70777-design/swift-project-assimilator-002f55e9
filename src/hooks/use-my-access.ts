@@ -5,6 +5,23 @@ import { listMyAccess } from "@/lib/rbac/rbac.functions";
 import { supabase } from "@/integrations/supabase/client";
 
 const KEY = ["rbac", "me"] as const;
+const ACCESS_TIMEOUT_MS = 10_000;
+
+function withTimeout<T>(promise: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error(label)), ms);
+    Promise.resolve(promise).then(
+      (value) => {
+        window.clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+}
 
 export type MyAccess = {
   userId: string;
@@ -34,7 +51,7 @@ export function useMyAccess(): MyAccess {
     queryKey: KEY,
     staleTime: 30_000,
     refetchOnWindowFocus: true,
-    queryFn: async () => fn(),
+    queryFn: async () => withTimeout(fn(), ACCESS_TIMEOUT_MS, "RBAC access lookup timed out"),
   });
   return useMemo(() => {
     if (!q.data) {

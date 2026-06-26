@@ -221,8 +221,10 @@ export function AccountStatusGuard() {
 
     // --- Periodic probe (covers missed realtime events + permanent_delete
     // where the local JWT is still technically valid) ---
+    let probeInFlight = false;
     const probe = async () => {
-      if (stopped || kickedRef.current) return;
+      if (stopped || kickedRef.current || probeInFlight) return;
+      probeInFlight = true;
       try {
         // getUser() revalidates with the Auth server (vs getSession()).
         const { data, error } = await supabase.auth.getUser();
@@ -286,6 +288,8 @@ export function AccountStatusGuard() {
         }
       } catch {
         /* network blip — try again next tick */
+      } finally {
+        probeInFlight = false;
       }
     };
 

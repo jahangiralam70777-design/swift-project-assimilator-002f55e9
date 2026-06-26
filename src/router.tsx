@@ -47,10 +47,10 @@ export const getRouter = () => {
     defaultErrorComponent: DefaultErrorFallback,
     defaultNotFoundComponent: DefaultNotFoundFallback,
     defaultPendingComponent: DefaultPendingFallback,
-    // Never flash a pending UI during navigation — keep the previous page
-    // visible until the next route is ready.
-    defaultPendingMs: 10_000,
-    defaultPendingMinMs: 0,
+    // Show bounded pending UI quickly on cold/direct loads so the app never
+    // looks like a blank white page while route chunks or loaders resolve.
+    defaultPendingMs: 300,
+    defaultPendingMinMs: 200,
   });
 
   return router;

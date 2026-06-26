@@ -113,7 +113,8 @@ function StudentGate({ children }: { children: React.ReactNode }) {
       return;
     }
     if (user.role !== "student") {
-      navigate({ to: "/login", replace: true });
+      const adminLike = user.role === "admin" || user.role === "super_admin" || user.role === "moderator";
+      navigate({ to: adminLike ? "/admin" : "/login", replace: true });
     }
   }, [sessionReady, authLoading, user, navigate]);
 
