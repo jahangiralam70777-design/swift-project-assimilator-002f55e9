@@ -253,7 +253,6 @@ const STUDENT_ROUTES = [
 
 function RootInner() {
   const location = useLocation();
-  const router = useRouter();
   const queryClient = useQueryClient();
   const { hydrate, user, authVersion } = useAppStore();
   const hydrated = useAppStore((s) => s.hydrated);
@@ -350,7 +349,7 @@ function RootInner() {
     } else {
       queryClient.invalidateQueries({ refetchType: "active" });
     }
-  }, [authVersion, queryClient, router, user]);
+  }, [authVersion, queryClient, user]);
 
   const path = location.pathname;
   const isPasswordRecoveryRoute = path === "/reset-password";
