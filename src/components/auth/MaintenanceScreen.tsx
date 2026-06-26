@@ -80,8 +80,8 @@ export function MaintenanceScreen({
         <div className="mt-6 rounded-2xl border border-border bg-muted/30 p-4">
           <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
             <Clock className="h-3.5 w-3.5" /> Service resumes on{" "}
-            <span className="font-mono text-foreground">
-              {new Date(autoEnableAt).toLocaleString()}
+            <span className="font-mono text-foreground" suppressHydrationWarning>
+              {hydrated ? new Date(autoEnableAt).toLocaleString() : autoEnableAt}
             </span>
           </div>
           {cd && !cd.done && (
