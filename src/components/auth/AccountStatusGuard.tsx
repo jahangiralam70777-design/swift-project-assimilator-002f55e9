@@ -365,22 +365,29 @@ export function AccountStatusGuard() {
         const { data, error } = await supabase.auth.getUser();
         if (cancelled) return;
         if (error || !data?.user) {
+          const code = (error as { code?: string } | null)?.code ?? "";
           const msg = (error?.message ?? "").toLowerCase();
-          if (!data?.user || msg.includes("not found") || msg.includes("user_not_found")) {
-            // Synthesise a logout the same way the main probe does.
-            try {
-              await signOut();
-            } catch {
-              /* noop */
-            }
-            toast.error("Your session is no longer valid. Please sign in again.", {
-              duration: 8000,
-            });
-            try {
-              navigate({ to: "/login", replace: true });
-            } catch {
-              window.location.replace("/login");
-            }
+          const explicitMissing =
+            code === "user_not_found" ||
+            msg.includes("user_not_found") ||
+            msg.includes("user from sub claim") ||
+            (error === null && !data?.user); // explicit empty user object
+          // Plain network failures (no body, fetch rejection) MUST NOT
+          // sign the user out — that produced the "logged out for no
+          // reason" complaints on flaky connections.
+          if (!explicitMissing) return;
+          try {
+            await signOut();
+          } catch {
+            /* noop */
+          }
+          toast.error("Your session is no longer valid. Please sign in again.", {
+            duration: 8000,
+          });
+          try {
+            navigate({ to: "/login", replace: true });
+          } catch {
+            window.location.replace("/login");
           }
         }
       } catch {
