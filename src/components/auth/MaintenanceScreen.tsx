@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ShieldAlert, Clock } from "lucide-react";
 import { AuthShell } from "@/components/auth/AuthShell";
+import { useHydrated } from "@/hooks/use-hydrated";
 
 type Props = {
   title: string;
