@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { adminNavItems } from "@/lib/app-data";
 import { useAppStore } from "@/stores/app-store";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { reportError } from "@/lib/error-reporter";
+
 
 function normalizeAdminPath(path: string) {
   return path.replace(/\/+$/, "") || "/admin";
