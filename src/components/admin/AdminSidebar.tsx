@@ -86,7 +86,7 @@ function SidebarBody({
 
 export function AdminSidebar() {
   const currentPath = useRouterState({ select: (s) => s.location.pathname });
-  const user = useAppStore((s) => s.user);
+  
   const logout = useAppStore((s) => s.logout);
   const sidebarOpen = useAppStore((s) => s.sidebarOpen);
   const setSidebarOpen = useAppStore((s) => s.setSidebarOpen);
