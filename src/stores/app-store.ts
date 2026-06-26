@@ -382,6 +382,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         return null;
       } finally {
         if (!options?.force) inflightRefresh = null;
+        if (runId === refreshEpoch) {
+          set((state) => (state.authLoading ? { authLoading: false } : state));
+        }
       }
     })();
     if (!options?.force) inflightRefresh = run;
