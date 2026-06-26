@@ -57,6 +57,7 @@ export function MaintenanceScreen({
   autoEnableAt,
 }: Props) {
   const cd = useCountdown(autoEnableAt);
+  const hydrated = useHydrated();
   return (
     <AuthShell variant="student">
       <div className="flex items-center gap-3">
