@@ -350,8 +350,6 @@ function RootInner() {
     } else {
       queryClient.invalidateQueries({ refetchType: "active" });
     }
-    void router.invalidate();
-    (router as unknown as { refresh?: () => void }).refresh?.();
   }, [authVersion, queryClient, router, user]);
 
   const path = location.pathname;
