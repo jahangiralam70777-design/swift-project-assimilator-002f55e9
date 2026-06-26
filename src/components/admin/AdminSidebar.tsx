@@ -98,6 +98,7 @@ export function AdminSidebar() {
     navigate({ to: "/login" });
   };
   const handleNavigate = (target: string, event: MouseEvent<HTMLAnchorElement>) => {
+    // Modifier/aux-button clicks → let the browser handle normally.
     if (
       event.defaultPrevented ||
       event.button !== 0 ||
@@ -108,56 +109,17 @@ export function AdminSidebar() {
     ) {
       return;
     }
-    event.preventDefault();
     const from = normalizeAdminPath(currentPath);
     const to = normalizeAdminPath(target);
+    // Same route: don't navigate; just close the mobile drawer.
     if (from === to) {
+      event.preventDefault();
       if (sidebarOpen) setSidebarOpen(false);
       return;
     }
-    void Promise.resolve(navigate({ to: target as never })).catch((error) => {
-      reportError({
-        source: "frontend",
-        severity: "high",
-        message: "Admin sidebar navigation threw",
-        route: currentPath,
-        stack: error instanceof Error ? error.stack : undefined,
-        payload: {
-          from,
-          to,
-          userId: user?.id ?? null,
-          role: user?.role ?? null,
-          error: error instanceof Error ? error.message : String(error),
-          ts: new Date().toISOString(),
-        },
-      });
-    });
+    // Different route: let TanStack <Link> drive the navigation (client-side,
+    // type-safe, preserves preload). Just close the drawer.
     if (sidebarOpen) setSidebarOpen(false);
-    window.setTimeout(() => {
-      if (normalizeAdminPath(window.location.pathname) !== to) {
-        reportError({
-          source: "frontend",
-          severity: "medium",
-          message: "Admin sidebar navigation did not resolve",
-          route: currentPath,
-          payload: {
-            from,
-            to,
-            actual: window.location.pathname,
-            userId: user?.id ?? null,
-            role: user?.role ?? null,
-            ts: new Date().toISOString(),
-          },
-        });
-        console.warn("[admin-nav] navigation did not resolve", {
-          from,
-          to,
-          actual: window.location.pathname,
-          role: user?.role ?? null,
-          ts: new Date().toISOString(),
-        });
-      }
-    }, 3500);
   };
   return (
     <>
