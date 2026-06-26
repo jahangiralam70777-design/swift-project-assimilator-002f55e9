@@ -16,6 +16,7 @@ import { useAuthControls } from "@/hooks/use-auth-controls";
 import { MaintenanceScreen } from "@/components/auth/MaintenanceScreen";
 
 export const Route = createFileRoute("/signup")({
+  ssr: false,
   component: StudentSignup,
   head: () => ({
     meta: [

@@ -15,6 +15,7 @@ import {
 } from "@/lib/admin-verify.functions";
 
 export const Route = createFileRoute("/admin/login")({
+  ssr: false,
   component: AdminLogin,
   head: () => ({
     meta: [
