@@ -341,18 +341,21 @@ export const useAppStore = create<AppState>((set, get) => ({
           hasUser: !!user,
         });
         if (data.session && !user && !demoUser) {
-          await supabase.auth.signOut().catch(() => undefined);
-          persistAuthSnapshot(null);
-          clearLocalSessionId();
-          clearSessionTimers();
+          // `fetchSessionUser` returning null is AMBIGUOUS: it can mean
+          // "profile/ban lookup timed out / network blip" OR "account
+          // genuinely deleted". A silent signOut() here was logging valid
+          // students out on slow Supabase responses. AccountStatusGuard
+          // owns the authoritative "is the account still valid" probe
+          // (with retry + explicit error code checks) — leave the
+          // session intact and let that path handle real deletions.
+          console.warn(
+            "[auth] refreshAuth: session present but profile lookup returned null — keeping session, will retry",
+          );
           if (runId === refreshEpoch) {
             set({
-              user: null,
               sessionReady: true,
               authLoading: false,
               authError: null,
-              authVersion: bumpAuthVersion(),
-              quizRuntime: { active: false, score: 0, answered: 0 },
             });
           }
           return null;
