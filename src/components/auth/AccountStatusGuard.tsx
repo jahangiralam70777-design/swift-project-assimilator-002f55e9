@@ -243,16 +243,40 @@ export function AccountStatusGuard() {
         }
         // Profile presence check — covers soft delete edge cases that the
         // realtime channel missed (e.g. session was offline).
-        const { data: prof } = await supabase
+        //
+        // CRITICAL: `.maybeSingle()` returns `null` for BOTH "row truly
+        // absent" AND "query failed silently / RLS edge case / cold start".
+        // Treating every null as "account deleted" caused valid students to
+        // be logged out on a single transient hiccup. We now only force
+        // logout when (a) there's an explicit error whose code/message
+        // matches a true not-found, or (b) the row is missing on TWO
+        // consecutive probes (i.e. it stays missing across ~PROBE_MS).
+        const profileResp = await supabase
           .from("profiles")
           .select("id,deleted_at,status")
           .eq("id", uid)
           .maybeSingle();
+        const prof = profileResp.data as
+          | { deleted_at: string | null; status: string | null }
+          | null;
+        const profErr = profileResp.error as { code?: string; message?: string } | null;
         if (!prof) {
-          void forceLogout("deleted");
+          // Network / RLS hiccup: do not log the user out. Try again next tick.
+          const profErrCode = profErr?.code ?? "";
+          const profErrMsg = (profErr?.message ?? "").toLowerCase();
+          const explicitMissing = profErrCode === "PGRST116" || profErrMsg.includes("not found");
+          if (explicitMissing) {
+            missingProfileStreak += 1;
+          } else {
+            missingProfileStreak = 0;
+          }
+          if (missingProfileStreak >= 2) {
+            void forceLogout("deleted");
+          }
           return;
         }
-        const p = prof as { deleted_at: string | null; status: string | null };
+        missingProfileStreak = 0;
+        const p = prof;
         if (p.deleted_at) {
           void forceLogout("deleted");
           return;
